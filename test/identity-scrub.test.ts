@@ -6,20 +6,20 @@ import { describe, expect, it } from "vitest";
 import { IDENTITY_SCRUB_SCRIPT } from "../src/backend.js";
 
 // The plugin runs the scrub as `bash -lc <script>`, so the shell's own command line mentions the
-// daemon and matches any `-f bb-host-daemon` pattern. Fake process tools stand in for that match
-// (they report or kill the calling shell) so the test never touches real processes.
+// daemon. A fake pkill checks the pattern against that shell's real command line, so the test
+// never touches other processes.
 function fakeTools(dir: string) {
   const tool = (name: string, body: string) => {
     writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`);
     chmodSync(join(dir, name), 0o755);
   };
-  tool("pgrep", 'echo "$PPID"');
-  tool("pkill", 'kill -TERM "$PPID"');
+  // Like the real pkill -f: kill the calling shell if the pattern matches its command line.
+  tool("pkill", 'for p; do pattern="$p"; done; tr "\\0" " " < /proc/$PPID/cmdline | grep -Eq -- "$pattern" && kill -TERM "$PPID"; exit 0');
   tool("systemctl", "exit 0");
 }
 
 describe("IDENTITY_SCRUB_SCRIPT", () => {
-  it("does not kill the shell running it and removes the copied state", () => {
+  it.runIf(process.platform === "linux")("does not kill the shell running it and removes the copied state", () => {
     const root = mkdtempSync(join(tmpdir(), "bb-boat-scrub-"));
     try {
       const bin = join(root, "bin");
@@ -27,7 +27,7 @@ describe("IDENTITY_SCRUB_SCRIPT", () => {
       mkdirSync(bin);
       mkdirSync(join(home, ".bb-machines", "hub", "npm"), { recursive: true });
       fakeTools(bin);
-      const result = spawnSync("bash", ["-c", IDENTITY_SCRUB_SCRIPT], {
+      const result = spawnSync("bash", ["-lc", IDENTITY_SCRUB_SCRIPT], {
         env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home },
         encoding: "utf8",
       });

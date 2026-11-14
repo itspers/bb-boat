@@ -86,12 +86,9 @@ export const IDENTITY_SCRUB_SCRIPT = [
   '  rm -f "$HOME/.config/systemd/user/$unit"',
   "done",
   "systemctl --user daemon-reload >/dev/null 2>&1 || true",
-  // This script's own command line mentions the daemon, so `pkill -f` would kill
-  // the shell running it: list the processes and skip this shell.
-  'pids="$(mktemp)"',
-  'pgrep -u "$(id -u)" -f bb-host-daemon >"$pids" 2>/dev/null || true',
-  'while read -r pid; do [ "$pid" = "$$" ] || kill "$pid" 2>/dev/null || true; done <"$pids"',
-  'rm -f "$pids"',
+  // Boat runs this text inside shells whose command lines contain it, so the
+  // pattern must not match itself: the bracket keeps it to the daemon process.
+  'pkill -u "$(id -u)" -f "[h]ost-daemon/dist/daemon-bundle" >/dev/null 2>&1 || true',
   'rm -rf "$HOME/.bb-machines"',
 ].join("\n");
 
